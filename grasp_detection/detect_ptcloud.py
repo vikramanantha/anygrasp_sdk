@@ -23,8 +23,8 @@ parser.add_argument('--debug', action='store_true', help='Enable debug mode')
 cfgs = parser.parse_args()
 # cfgs.max_gripper_width = max(0, min(0.1, cfgs.max_gripper_width))
 
-point_cloud_path = "example_data/splat_csv_minibot_v1.ply"
-# point_cloud_path = "visualization_output/cloud.ply"
+# point_cloud_path = "example_data/splat_csv_minibot_v1.ply"
+point_cloud_path = "example_data/ex1_cloud.ply"
 
 def demo(data_dir):
     anygrasp = AnyGrasp(cfgs)
@@ -76,7 +76,7 @@ def demo(data_dir):
     
     test_cloud.points = o3d.utility.Vector3dVector(points)
     test_cloud.colors = o3d.utility.Vector3dVector(colors)
-    save_point_cloud_npy(test_cloud)
+    save_point_cloud_npy(test_cloud, filename='test_')
 
     gg, _ = anygrasp.get_grasp(points, colors, lims=lims, apply_object_mask=True, dense_grasp=False, collision_detection=True)
     # print("\n\n\ne\n\n\n")
@@ -159,12 +159,12 @@ def visualize_grasps_2d(data_dir, grippers, fx, fy, cx, cy):
     # Save annotated image
     cv2.imwrite(os.path.join(output_dir, "annotated_grasps.png"), color_img)
 
-def save_point_cloud_npy(cloud):
+def save_point_cloud_npy(cloud, filename=""):
     # Create output directory if it doesn't exist
     output_dir = "visualization_output" 
     os.makedirs(output_dir, exist_ok=True)
 
-    o3d.io.write_point_cloud(os.path.join(output_dir, "cloud.ply"), cloud)
+    o3d.io.write_point_cloud(os.path.join(output_dir, f"{filename}cloud.ply"), cloud)
 
 def visualize_grasps_3d(gg, data_dir, cloud):
     """Visualize the top 3 grasps in 3D using Open3D's legacy off-screen rendering
@@ -176,6 +176,13 @@ def visualize_grasps_3d(gg, data_dir, cloud):
     """
     output_dir = "visualization_output"
     os.makedirs(output_dir, exist_ok=True)
+    
+    trans_mat = np.array([[1,0,0,0],[0,1,0,0],[0,0,-1,0],[0,0,0,1]])
+    # cloud.transform(trans_mat)
+    # for gripper in grippers:
+    #     gripper.transform(trans_mat)
+
+    # gg.transform(trans_mat)
 
     # Save point cloud first
     o3d.io.write_point_cloud(os.path.join(output_dir, "cloud.ply"), cloud)
@@ -188,7 +195,7 @@ def visualize_grasps_3d(gg, data_dir, cloud):
     all_lines = []
     all_colors = []
     vertex_offset = 0
-    
+
     for grasp_idx, grasp in enumerate(top_grasps):
         # Get grasp parameters
         score = grasp.score
@@ -196,12 +203,14 @@ def visualize_grasps_3d(gg, data_dir, cloud):
         width = grasp.width
         height = grasp.height
         depth = grasp.depth
+        
+        # print("depth: ", depth)
         rotation = grasp.rotation_matrix
 
         # Create box vertices representing the grasp
         vertices = []
-        for x in [-width/2, width/2]:
-            for y in [-height/2, height/2]:
+        for x in [-height/2, height/2]:
+            for y in [-width/2, width/2]:
                 for z in [-depth/2, depth/2]:
                     point = np.array([x, y, z])
                     # Rotate point
@@ -214,11 +223,11 @@ def visualize_grasps_3d(gg, data_dir, cloud):
 
         # Define lines connecting vertices to form gripper shape
         lines = [
-            # Width lines
+            # Height lines (blue)
             [0, 1], [2, 3], [4, 5], [6, 7],
-            # Height lines
+            # Width lines (red) 
             [0, 2], [1, 3], [4, 6], [5, 7],
-            # Depth lines
+            # Depth lines (green)
             [0, 4], [1, 5], [2, 6], [3, 7]
         ]
         
@@ -228,13 +237,14 @@ def visualize_grasps_3d(gg, data_dir, cloud):
         
         # Use fixed colors for each line type
         colors = [
-            # Width lines (red)
-            [1, 0, 0], [1, 0, 0], [1, 0, 0], [1, 0, 0],
             # Height lines (blue)
             [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1],
+            # Width lines (red)
+            [1, 0, 0], [1, 0, 0], [1, 0, 0], [1, 0, 0], 
             # Depth lines (green)
             [0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]
         ]
+        
         all_colors.extend(colors)
         
         vertex_offset += 8  # Increment offset for next gripper

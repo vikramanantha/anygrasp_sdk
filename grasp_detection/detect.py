@@ -11,7 +11,7 @@ import open3d as o3d
 from PIL import Image
 
 from gsnet import AnyGrasp
-from graspnetAPI import GraspGroup
+# from graspnetAPI import GraspGroup
 import cv2
 
 parser = argparse.ArgumentParser()
@@ -23,8 +23,8 @@ parser.add_argument('--debug', action='store_true', help='Enable debug mode')
 cfgs = parser.parse_args()
 # cfgs.max_gripper_width = max(0, min(0.1, cfgs.max_gripper_width))
 
-color_filename = 'lab_picture_v4/rgb_0000.png'
-depth_filename = 'lab_picture_v4/depth_0000.png'
+color_filename = 'ex1_color.png'
+depth_filename = 'ex1_depth.png'
 
 
 def demo(data_dir):
@@ -75,82 +75,98 @@ def demo(data_dir):
     # print("\n\n\na\n\n\n")
     # visualization
     if cfgs.debug:
+        # visualize_rect_grasps(gg, data_dir)
         visualize_grasps_3d(gg, data_dir, cloud)
+        # demo_visualization(gg, cloud)
 
 
-def convert_to_rect_grasps(data_dir, gg):
-    gg = gg.nms().sort_by_score()[:10]
-    translations = gg.translations[mask]
-
-    # rggs = gg.to_rect_grasp_group('realsense')
-    rggs = gg.to_rect_grasp_group('realsense')
-    rggs2 = gg.to_rect_grasp_group('kinect')
-    
-    # Load original color image in BGR format
-    color_img = cv2.imread(os.path.join(data_dir, 'color.png'))
-    
-    # Convert BGR to RGB
-    rgb_img = cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)
-    
-    # Draw grasps on image
-    grasp_vis = rggs.to_opencv_image(rgb_img)
-    
-    # Create output directory if it doesn't exist
-    output_dir = "visualization_output"
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Save visualization
-    cv2.imwrite(os.path.join(output_dir, "rect_grasps.png"), cv2.cvtColor(grasp_vis, cv2.COLOR_RGB2BGR))
-
-def visualize_point_cloud(cloud):
-    # Create output directory if it doesn't exist
-    output_dir = "visualization_output"
-    os.makedirs(output_dir, exist_ok=True)
-
+def demo_visualization(gg, cloud):
     trans_mat = np.array([[1,0,0,0],[0,1,0,0],[0,0,-1,0],[0,0,0,1]])
     cloud.transform(trans_mat)
+    grippers = gg.to_open3d_geometry_list()
     
-    # Save point cloud and grippers as separate files
-    o3d.io.write_point_cloud(os.path.join(output_dir, "cloud.ply"), cloud)
-
-def visualize_grasps_2d(data_dir, grippers, fx, fy, cx, cy):
-
-    output_dir = "visualization_output"
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Load original color image
-    color_img = cv2.imread(os.path.join(data_dir, 'color.png'))
+    # Initialize combined line set components
+    all_vertices = []
+    all_lines = []
+    all_colors = []
+    vertex_offset = 0
     
-    # Project 3D gripper positions to 2D image coordinates
-    for i, gripper in enumerate(grippers[:20]):  # Only show top 20 grippers
-        # Get center point of gripper
-        center = np.mean(np.asarray(gripper.vertices), axis=0)
+    # Process each gripper
+    for gripper in grippers:
+        # Extract vertices and triangles
+        vertices = np.asarray(gripper.vertices)
+        triangles = np.asarray(gripper.triangles)
         
-        # Transform from 3D to image coordinates
-        z = -center[2]  # Negative because of transform matrix applied earlier
-        x = center[0] * fx / z + cx
-        y = center[1] * fy / z + cy
+        # Create edges from triangles
+        edges = set()
+        for triangle in triangles:
+            edges.add(tuple(sorted([triangle[0], triangle[1]])))
+            edges.add(tuple(sorted([triangle[1], triangle[2]])))
+            edges.add(tuple(sorted([triangle[2], triangle[0]])))
         
-        # Convert to integer pixel coordinates
-        x, y = int(x), int(y)
+        # Transform vertices
+        vertices = np.concatenate([vertices, np.ones((vertices.shape[0], 1))], axis=1)
+        vertices = (trans_mat @ vertices.T).T[:, :3]
         
-        # Draw index number on image
-        if 0 <= x < color_img.shape[1] and 0 <= y < color_img.shape[0]:
-            # Draw white circle background
-            cv2.circle(color_img, (x, y), 15, (255, 255, 255), -1)
-            # Draw index number in black
-            cv2.putText(color_img, str(i), (x-5, y+5), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        # Add to combined arrays with offset
+        all_vertices.extend(vertices)
+        all_lines.extend([(e[0] + vertex_offset, e[1] + vertex_offset) for e in edges])
+        
+        # Assign a random color to each gripper
+        color = np.random.rand(3).tolist()  # Random color for each gripper
+        all_colors.extend([color] * len(edges))
+        
+        vertex_offset += len(vertices)
     
-    # Save annotated image
-    cv2.imwrite(os.path.join(output_dir, "annotated_grasps.png"), color_img)
+    # Create combined line set
+    combined_line_set = o3d.geometry.LineSet()
+    combined_line_set.points = o3d.utility.Vector3dVector(all_vertices)
+    combined_line_set.lines = o3d.utility.Vector2iVector(all_lines)
+    combined_line_set.colors = o3d.utility.Vector3dVector(all_colors)
+    
+    # Save combined results
+    o3d.io.write_point_cloud("visualization_output/cloud.ply", cloud)
+    o3d.io.write_line_set("visualization_output/grippers.ply", combined_line_set)
 
 def save_point_cloud_npy(cloud):
     # Create output directory if it doesn't exist
     output_dir = "visualization_output" 
     os.makedirs(output_dir, exist_ok=True)
 
+    print()
+
     o3d.io.write_point_cloud(os.path.join(output_dir, "cloud.ply"), cloud)
+
+def visualize_rect_grasps(gg, data_dir):
+    output_dir = "visualization_output"
+    os.makedirs(output_dir, exist_ok=True)
+    rgg = gg.to_rect_grasp_group('realsense')
+    print(rgg)
+    print(gg)
+    # o3d.io.write_line_set(os.path.join(output_dir, "top_grippers.ply"), line_set)
+    top_grasps = rgg
+    for grasp_idx, grasp in enumerate(top_grasps):
+        center_point = grasp.center_point
+        height = grasp.height
+        object_id = grasp.object_id
+        open_point = grasp.open_point
+        score = grasp.score
+        print(f"Grasp {grasp_idx + 1} score: {score}")
+        print(f"Center point: {center_point}")
+        print(f"Height: {height}")
+        print(f"Object ID: {object_id}")
+        print(f"Open point: {open_point}")
+        
+    # Open color image
+    grasped_filename = os.path.join(data_dir, color_filename)
+    grasped_img = cv2.imread(grasped_filename, cv2.IMREAD_COLOR)
+    
+    top_grasps_img = top_grasps.to_opencv_image(grasped_img, 0)
+    
+    cv2.imwrite(os.path.join(output_dir, f"top_grasps_{os.path.splitext(color_filename)[0]}.png"), top_grasps_img)
+    
+    print(f"Visualization data saved to {output_dir}/")
+    print("Top gripper geometries have been saved as PNG files.")
 
 def visualize_grasps_3d(gg, data_dir, cloud):
     """Visualize the top 3 grasps in 3D using Open3D's legacy off-screen rendering
@@ -162,6 +178,13 @@ def visualize_grasps_3d(gg, data_dir, cloud):
     """
     output_dir = "visualization_output"
     os.makedirs(output_dir, exist_ok=True)
+    
+    trans_mat = np.array([[1,0,0,0],[0,1,0,0],[0,0,-1,0],[0,0,0,1]])
+    # cloud.transform(trans_mat)
+    # for gripper in grippers:
+    #     gripper.transform(trans_mat)
+
+    # gg.transform(trans_mat)
 
     # Save point cloud first
     o3d.io.write_point_cloud(os.path.join(output_dir, "cloud.ply"), cloud)
@@ -174,7 +197,7 @@ def visualize_grasps_3d(gg, data_dir, cloud):
     all_lines = []
     all_colors = []
     vertex_offset = 0
-    
+
     for grasp_idx, grasp in enumerate(top_grasps):
         # Get grasp parameters
         score = grasp.score
@@ -183,13 +206,13 @@ def visualize_grasps_3d(gg, data_dir, cloud):
         height = grasp.height
         depth = grasp.depth
         
-        print("depth: ", depth)
+        # print("depth: ", depth)
         rotation = grasp.rotation_matrix
 
         # Create box vertices representing the grasp
         vertices = []
-        for x in [-width/2, width/2]:
-            for y in [-height/2, height/2]:
+        for x in [-height/2, height/2]:
+            for y in [-width/2, width/2]:
                 for z in [-depth/2, depth/2]:
                     point = np.array([x, y, z])
                     # Rotate point
@@ -202,11 +225,11 @@ def visualize_grasps_3d(gg, data_dir, cloud):
 
         # Define lines connecting vertices to form gripper shape
         lines = [
-            # Width lines
+            # Height lines (blue)
             [0, 1], [2, 3], [4, 5], [6, 7],
-            # Height lines
+            # Width lines (red) 
             [0, 2], [1, 3], [4, 6], [5, 7],
-            # Depth lines
+            # Depth lines (green)
             [0, 4], [1, 5], [2, 6], [3, 7]
         ]
         
@@ -216,13 +239,14 @@ def visualize_grasps_3d(gg, data_dir, cloud):
         
         # Use fixed colors for each line type
         colors = [
-            # Width lines (red)
-            [1, 0, 0], [1, 0, 0], [1, 0, 0], [1, 0, 0],
             # Height lines (blue)
             [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1],
+            # Width lines (red)
+            [1, 0, 0], [1, 0, 0], [1, 0, 0], [1, 0, 0], 
             # Depth lines (green)
             [0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]
         ]
+        
         all_colors.extend(colors)
         
         vertex_offset += 8  # Increment offset for next gripper

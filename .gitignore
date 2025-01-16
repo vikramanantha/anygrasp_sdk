@@ -2,8 +2,8 @@
 
 # file formats we dont care about
 *.pt
-*.ply
-*.png
+# *.ply
+# *.png
 *.jpg
 *.jpeg
 *.gif
