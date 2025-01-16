@@ -1,0 +1,14 @@
+{
+    "version": "3.1.0",
+    "feature_id": "9612403778647979487",
+    "public_key": "VikramAnantha4.public_key",
+    "signature": "VikramAnantha4.signature",
+    "license": "VikramAnantha4.lic",
+    "toolbox": [
+        {
+            "name": "Basic",
+            "type": "PERMANENT",
+            "data": ""
+        }
+    ]
+}

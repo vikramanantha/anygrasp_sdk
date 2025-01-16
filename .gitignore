@@ -1,8 +1,19 @@
 **/__pycache__/**
-**/*.egg-info/
-*.o
-*.so
-*.egg
-.DS_Store
-.TimeRecord
-license
+
+# file formats we dont care about
+*.pt
+*.ply
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.webp
+
+# grasp tracking isnt useful for our application
+grasp_tracking/
+
+grasp_detection/checkpoints/
+grasp_detection/MinkowskiEngine/

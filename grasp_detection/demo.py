@@ -2,6 +2,11 @@ import os
 import argparse
 import torch
 import numpy as np
+
+# Add compatibility for older np.float usage
+if not hasattr(np, 'float'):
+    np.float = float  # or np.float64
+
 import open3d as o3d
 from PIL import Image
 

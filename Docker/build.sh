@@ -1,0 +1,1 @@
+docker build -t grasp_sdk:latest -f Dockerfile ..

@@ -1,0 +1,3 @@
+[submodule "grasp_detection/MinkowskiEngine"]
+	path = grasp_detection/MinkowskiEngine
+	url = https://github.com/NVIDIA/MinkowskiEngine
