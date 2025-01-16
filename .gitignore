@@ -17,3 +17,4 @@ grasp_tracking/
 
 grasp_detection/checkpoints/
 grasp_detection/MinkowskiEngine/
+graspnetAPI/
