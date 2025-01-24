@@ -20,19 +20,26 @@ parser.add_argument('--max_gripper_width', type=float, default=0.1, help='Maximu
 parser.add_argument('--gripper_height', type=float, default=0.03, help='Gripper height')
 parser.add_argument('--top_down_grasp', action='store_true', help='Output top-down grasps.')
 parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+# parser.add_argument('--from_point_cloud', action='store_true', help='Load point cloud directly from PLY file')
+
 cfgs = parser.parse_args()
 # cfgs.max_gripper_width = max(0, min(0.1, cfgs.max_gripper_width))
 
 # point_cloud_path = "example_data/splat_csv_minibot_v1.ply"
 point_cloud_path = "example_data/ex1_cloud.ply"
 
-def demo(data_dir):
-    anygrasp = AnyGrasp(cfgs)
-    anygrasp.load_net()
+FROM_POINT_CLOUD = True
 
-    # get data
-    # colors = np.array(Image.open(os.path.join(data_dir, color_filename)), dtype=np.float32) / 255.0
-    # depths = np.array(Image.open(os.path.join(data_dir, depth_filename)))
+def load_point_cloud(point_cloud_path):
+    cloud = o3d.io.read_point_cloud(point_cloud_path)
+    points = np.asarray(cloud.points).astype(np.float32)
+    colors = np.asarray(cloud.colors).astype(np.float32)
+
+    return points, colors, cloud
+
+def load_rgbd_image(color_filename="", depth_filename=""):
+    colors = np.array(Image.open(color_filename), dtype=np.float32) / 255.0
+    depths = np.array(Image.open(depth_filename))
     # get camera intrinsics
     fx, fy = 927.17, 927.37
     cx, cy = 651.32, 349.62
@@ -44,120 +51,62 @@ def demo(data_dir):
     lims = [xmin, xmax, ymin, ymax, zmin, zmax]
     # print("\n\n\nb\n\n\n")
     # get point cloud
-    # xmap, ymap = np.arange(depths.shape[1]), np.arange(depths.shape[0])
-    # xmap, ymap = np.meshgrid(xmap, ymap)
-    # points_z = depths / scale
-    # points_x = (xmap - cx) / fx * points_z
-    # points_y = (ymap - cy) / fy * points_z
+    xmap, ymap = np.arange(depths.shape[1]), np.arange(depths.shape[0])
+    xmap, ymap = np.meshgrid(xmap, ymap)
+    points_z = depths / scale
+    points_x = (xmap - cx) / fx * points_z
+    points_y = (ymap - cy) / fy * points_z
 
-    # # set your workspace to crop point cloud
-    # mask = (points_z > 0) & (points_z < 1)
-    # points = np.stack([points_x, points_y, points_z], axis=-1)
-    # points = points[mask].astype(np.float32)
-    # colors = colors[mask].astype(np.float32)
-    # # print("\n\n\nc\n\n\n")
-    # # Create Open3D point cloud object
-    # cloud = o3d.geometry.PointCloud()
-    # cloud.points = o3d.utility.Vector3dVector(points)
-    # cloud.colors = o3d.utility.Vector3dVector(colors)
-    # # Save point cloud as numpy array
-    # save_point_cloud_npy(cloud)
-    # # print("\n\n\nd\n\n\n")
+    # set your workspace to crop point cloud
+    mask = (points_z > 0) & (points_z < 1)
+    points = np.stack([points_x, points_y, points_z], axis=-1)
+    points = points[mask].astype(np.float32)
+    colors = colors[mask].astype(np.float32)
+    # print("\n\n\nc\n\n\n")
+    # Create Open3D point cloud object
+    cloud = o3d.geometry.PointCloud()
+    cloud.points = o3d.utility.Vector3dVector(points)
+    cloud.colors = o3d.utility.Vector3dVector(colors)
+
+    return points, colors, cloud
 
 
-    cloud = o3d.io.read_point_cloud(point_cloud_path)
 
-    # Convert Open3D point cloud to numpy arrays
-    points = np.asarray(cloud.points).astype(np.float32)
-    colors = np.asarray(cloud.colors).astype(np.float32)
+def detect_grasp(point_cloud_path="", color_filename="", depth_filename=""):
+    # Initialize and load AnyGrasp model
+    anygrasp = AnyGrasp(cfgs)
+    anygrasp.load_net()
 
-    test_cloud = o3d.geometry.PointCloud()
+    # Define workspace limits
+    xmin, xmax = -0.19, 0.12
+    ymin, ymax = 0.02, 0.15
+    zmin, zmax = 0.0, 1.0
+    lims = [xmin, xmax, ymin, ymax, zmin, zmax]
+
+    # Load and process point cloud
+    if FROM_POINT_CLOUD:
+        points, colors, cloud = load_point_cloud(point_cloud_path)
+    else:
+        points, colors, cloud = load_rgbd_image(color_filename, depth_filename)
+
+    # Get grasp predictions
+    gg, _ = anygrasp.get_grasp(points, colors, lims=lims, 
+                              apply_object_mask=True, 
+                              dense_grasp=False, 
+                              collision_detection=True)
     
-    
-    test_cloud.points = o3d.utility.Vector3dVector(points)
-    test_cloud.colors = o3d.utility.Vector3dVector(colors)
-    save_point_cloud_npy(test_cloud, filename='test_')
-
-    gg, _ = anygrasp.get_grasp(points, colors, lims=lims, apply_object_mask=True, dense_grasp=False, collision_detection=True)
-    # print("\n\n\ne\n\n\n")
-    # if len(gg) == 0:
-    #     return
-    # print("\n\n\nf\n\n\n")
+    # Post-process grasps
     gg = gg.nms().sort_by_score()
-    # print("\n\n\ng\n\n\n")
-    # convert_to_rect_grasps(data_dir, gg)
-    # print("\n\n\na\n\n\n")
-    # visualization
+
+    # Get top grasp pose
+    grasp_translation = gg.translations[0]  # Get translation of highest scoring grasp
+    grasp_rotation = gg.rotation_matrices[0]  # Get rotation matrix of highest scoring grasp
+
     if cfgs.debug:
-        visualize_grasps_3d(gg, data_dir, cloud)
-
-
-def convert_to_rect_grasps(data_dir, gg):
-    gg = gg.nms().sort_by_score()[:10]
-    translations = gg.translations[mask]
-
-    # rggs = gg.to_rect_grasp_group('realsense')
-    rggs = gg.to_rect_grasp_group('realsense')
-    rggs2 = gg.to_rect_grasp_group('kinect')
-    
-    # Load original color image in BGR format
-    color_img = cv2.imread(os.path.join(data_dir, 'color.png'))
-    
-    # Convert BGR to RGB
-    rgb_img = cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)
-    
-    # Draw grasps on image
-    grasp_vis = rggs.to_opencv_image(rgb_img)
-    
-    # Create output directory if it doesn't exist
-    output_dir = "visualization_output"
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Save visualization
-    cv2.imwrite(os.path.join(output_dir, "rect_grasps.png"), cv2.cvtColor(grasp_vis, cv2.COLOR_RGB2BGR))
-
-def visualize_point_cloud(cloud):
-    # Create output directory if it doesn't exist
-    output_dir = "visualization_output"
-    os.makedirs(output_dir, exist_ok=True)
-
-    trans_mat = np.array([[1,0,0,0],[0,1,0,0],[0,0,-1,0],[0,0,0,1]])
-    cloud.transform(trans_mat)
-    
-    # Save point cloud and grippers as separate files
-    o3d.io.write_point_cloud(os.path.join(output_dir, "cloud.ply"), cloud)
-
-def visualize_grasps_2d(data_dir, grippers, fx, fy, cx, cy):
-
-    output_dir = "visualization_output"
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Load original color image
-    color_img = cv2.imread(os.path.join(data_dir, 'color.png'))
-    
-    # Project 3D gripper positions to 2D image coordinates
-    for i, gripper in enumerate(grippers[:20]):  # Only show top 20 grippers
-        # Get center point of gripper
-        center = np.mean(np.asarray(gripper.vertices), axis=0)
+        visualize_grasps_3d(gg, cloud)
         
-        # Transform from 3D to image coordinates
-        z = -center[2]  # Negative because of transform matrix applied earlier
-        x = center[0] * fx / z + cx
-        y = center[1] * fy / z + cy
-        
-        # Convert to integer pixel coordinates
-        x, y = int(x), int(y)
-        
-        # Draw index number on image
-        if 0 <= x < color_img.shape[1] and 0 <= y < color_img.shape[0]:
-            # Draw white circle background
-            cv2.circle(color_img, (x, y), 15, (255, 255, 255), -1)
-            # Draw index number in black
-            cv2.putText(color_img, str(i), (x-5, y+5), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
-    
-    # Save annotated image
-    cv2.imwrite(os.path.join(output_dir, "annotated_grasps.png"), color_img)
+    return grasp_translation, grasp_rotation
+
 
 def save_point_cloud_npy(cloud, filename=""):
     # Create output directory if it doesn't exist
@@ -166,7 +115,7 @@ def save_point_cloud_npy(cloud, filename=""):
 
     o3d.io.write_point_cloud(os.path.join(output_dir, f"{filename}cloud.ply"), cloud)
 
-def visualize_grasps_3d(gg, data_dir, cloud):
+def visualize_grasps_3d(gg, cloud):
     """Visualize the top 3 grasps in 3D using Open3D's legacy off-screen rendering
     
     Args:
@@ -264,4 +213,4 @@ def visualize_grasps_3d(gg, data_dir, cloud):
     print("Point cloud and top 3 gripper geometries have been saved as PLY files.")
 
 if __name__ == '__main__':
-    demo('./example_data/')
+    detect_grasp('./example_data/ex1_color.png', './example_data/ex1_depth.png')
